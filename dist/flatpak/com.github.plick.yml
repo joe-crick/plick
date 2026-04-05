@@ -1,0 +1,64 @@
+app-id: com.github.plick
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: plick
+
+finish-args:
+  # Wayland access
+  - --socket=wayland
+  # Portal access (screencast)
+  - --talk-name=org.freedesktop.portal.Desktop
+  # PipeWire access (for GStreamer pipewiresrc)
+  - --filesystem=xdg-run/pipewire-0
+  # Save files to Videos (default output dir)
+  - --filesystem=xdg-videos
+  # User config
+  - --filesystem=xdg-config/plick:create
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+
+modules:
+  - name: plick
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/plick /app/bin/plick
+      - install -Dm644 data/com.github.plick.desktop /app/share/applications/com.github.plick.desktop
+      - install -Dm644 data/com.github.plick.metainfo.xml /app/share/metainfo/com.github.plick.metainfo.xml
+      - install -Dm644 data/com.github.plick.svg /app/share/icons/hicolor/scalable/apps/com.github.plick.svg
+    sources:
+      - type: dir
+        path: ../..
+
+  # GStreamer plugins for pipewiresrc and vp8enc are in the GNOME runtime.
+  # FFmpeg is needed for GIF conversion (palette + encode).
+  - name: ffmpeg
+    buildsystem: autotools
+    config-opts:
+      - --disable-doc
+      - --disable-static
+      - --enable-shared
+      - --enable-gpl
+      - --enable-libvpx
+      - --enable-ffmpeg
+      - --disable-ffplay
+      - --disable-ffprobe
+      - --disable-everything
+      - --enable-demuxer=matroska,webm
+      - --enable-decoder=vp8,vp9
+      - --enable-filter=fps,palettegen,paletteuse,scale
+      - --enable-encoder=gif
+      - --enable-muxer=gif
+      - --enable-protocol=file,pipe
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+        sha256: 40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /share/ffmpeg

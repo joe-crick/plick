@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Plick
+Comment=Minimal GIF screen recorder for Wayland
+Exec=plick
+Icon=com.github.plick
+Terminal=false
+Type=Application
+Categories=Utility;Video;GTK;
+Keywords=screencast;gif;record;screen;wayland;
+StartupNotify=true

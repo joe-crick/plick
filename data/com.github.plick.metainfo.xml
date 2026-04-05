@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.plick</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Plick</name>
+  <summary>Minimal GIF screen recorder for Wayland</summary>
+  <description>
+    <p>
+      Plick is a fast, minimal screen-to-GIF recorder for Wayland desktops.
+      It uses xdg-desktop-portal for screen/window selection, records via
+      GStreamer and PipeWire, and converts to high-quality GIF using FFmpeg's
+      2-pass palette approach.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.github.plick.desktop</launchable>
+  <url type="homepage">https://github.com/plick</url>
+  <provides>
+    <binary>plick</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">320</display_length>
+  </requires>
+  <content_rating type="oars-1.1" />
+</component>
