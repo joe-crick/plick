@@ -12,6 +12,8 @@ Plick uses xdg-desktop-portal for screen or window selection, records via GStrea
 - Configurable output directory (click the folder icon)
 - Auto-saves as `screencast-YYYY-MM-DD-HHMMSS.gif`
 - Lightweight toolbar UI
+- **System tray icon** — appears while recording with a click-to-stop action
+- **Remote stop** — run `plick --stop` to stop a recording from another terminal or a custom keyboard shortcut
 
 ## Runtime Dependencies
 
@@ -123,6 +125,25 @@ Others can install it with:
 ```sh
 flatpak install plick.flatpak
 ```
+
+## Stopping a Recording
+
+There are three ways to stop a recording:
+
+1. **Stop button** — click "Stop" in the Plick toolbar
+2. **Tray icon** — click the recording indicator in the system tray (requires the [AppIndicator](https://extensions.gnome.org/extension/615/appindicator-support/) GNOME Shell extension on GNOME desktops)
+3. **CLI** — run `plick --stop` from any terminal to stop the running recording
+
+### Global Keyboard Shortcut
+
+You can bind `plick --stop` to a global keyboard shortcut so you can stop recording from anywhere:
+
+**GNOME:** Settings > Keyboard > Custom Shortcuts > Add:
+- Name: `Stop Plick Recording`
+- Command: `plick --stop` (or the full path to the binary)
+- Shortcut: your preferred key combination (e.g. `Ctrl+Shift+R`)
+
+**KDE:** System Settings > Shortcuts > Custom Shortcuts > Add a new shortcut with `plick --stop` as the command.
 
 ## Configuration
 

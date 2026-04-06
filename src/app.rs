@@ -467,7 +467,7 @@ fn show_converting_then_save(
             converter::convert(&temp_video_path, &dest_for_thread, gif_fps, |_| {});
         match &result {
             Ok(r) => eprintln!("Saved: {} ({} bytes)", r.gif_path.display(), r.gif_size_bytes),
-            Err(e) => eprintln!("Conversion failed: {e}"),
+            Err(e) => eprintln!("Conversion failed: {e:#}"),
         }
         let _ = std::fs::remove_file(&temp_video_path);
         let _ = tx.send(result.map(|r| r.gif_path).map_err(|e| e.to_string()));

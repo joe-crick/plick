@@ -11,6 +11,9 @@ finish-args:
   - --socket=wayland
   # Portal access (screencast)
   - --talk-name=org.freedesktop.portal.Desktop
+  # Tray icon (StatusNotifierItem)
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.kde.StatusNotifierItem-*
   # PipeWire access (for GStreamer pipewiresrc)
   - --filesystem=xdg-run/pipewire-0
   # Save files to Videos (default output dir)
@@ -48,12 +51,19 @@ modules:
       - --disable-ffplay
       - --disable-ffprobe
       - --disable-everything
-      - --enable-demuxer=matroska,webm
-      - --enable-decoder=vp8,vp9
-      - --enable-filter=fps,palettegen,paletteuse,scale
+      - --enable-demuxer=matroska
+      - --enable-decoder=vp8
+      - --enable-decoder=vp9
+      - --enable-filter=fps
+      - --enable-filter=palettegen
+      - --enable-filter=paletteuse
+      - --enable-filter=scale
       - --enable-encoder=gif
+      - --enable-encoder=png
       - --enable-muxer=gif
-      - --enable-protocol=file,pipe
+      - --enable-muxer=image2
+      - --enable-protocol=file
+      - --enable-protocol=pipe
     sources:
       - type: archive
         url: https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
