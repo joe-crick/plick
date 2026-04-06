@@ -7,13 +7,14 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Application, ApplicationWindow, Box as GtkBox, Button, CssProvider,
+    Align, ApplicationWindow, Box as GtkBox, Button, CssProvider,
     FileChooserAction, FileChooserDialog, Label, Orientation,
     ResponseType, Spinner, Window,
 };
@@ -21,12 +22,43 @@ use gtk4::{
 use crate::config::Config;
 use crate::converter;
 use crate::recorder::{self, Recorder};
+use crate::shortcuts;
+use crate::tray;
 
 const APP_ID: &str = "com.github.plick";
 
 pub fn run() -> i32 {
-    let app = Application::builder().application_id(APP_ID).build();
-    app.connect_activate(build_ui);
+    let app = libadwaita::Application::builder()
+        .application_id(APP_ID)
+        .flags(gtk4::gio::ApplicationFlags::HANDLES_COMMAND_LINE)
+        .build();
+
+    // Register --stop CLI option (forwarded to running instance via D-Bus)
+    shortcuts::register_stop_option(&app);
+
+    // Channel for remote stop signals (--stop CLI, tray icon)
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let stop_rx = Arc::new(Mutex::new(Some(stop_rx)));
+
+    // Register the stop-recording GApplication action
+    shortcuts::register_stop_action(&app, stop_tx.clone());
+
+    // Store stop_tx and stop_rx so build_ui can access them
+    let stop_tx_for_ui = stop_tx.clone();
+    let stop_rx_for_ui = stop_rx.clone();
+
+    app.connect_activate(move |app| {
+        build_ui(app, stop_tx_for_ui.clone(), stop_rx_for_ui.clone());
+    });
+
+    // Handle command-line: check for --stop, otherwise activate normally
+    app.connect_command_line(|app, cmdline| {
+        if !shortcuts::handle_command_line(app, cmdline) {
+            app.activate();
+        }
+        0
+    });
+
     app.run().into()
 }
 
@@ -52,7 +84,11 @@ fn load_css() {
     );
 }
 
-fn build_ui(app: &Application) {
+fn build_ui(
+    app: &libadwaita::Application,
+    stop_tx: mpsc::Sender<()>,
+    stop_rx: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
+) {
     load_css();
 
     let config = Config::load();
@@ -176,6 +212,93 @@ fn build_ui(app: &Application) {
 
     window.set_child(Some(&toolbar));
 
+    // Tray handle — set when recording, cleared when stopped.
+    // Arc<Mutex> because it's shared with the tray-spawning thread.
+    let tray_handle: Arc<Mutex<Option<crate::tray::TrayHandle>>> =
+        Arc::new(Mutex::new(None));
+
+    // --- Shared stop logic ---
+    // Wrapped in Rc so it can be called from stop button, global shortcut, or tray.
+    let do_stop: Rc<dyn Fn()> = {
+        let recorder = recorder.clone();
+        let config = config.clone();
+        let record_btn = record_btn.clone();
+        let stop_btn = stop_btn.clone();
+        let timer_label = timer_label.clone();
+        let status_label = status_label.clone();
+        let folder_btn = folder_btn.clone();
+        let tray_handle = tray_handle.clone();
+
+        Rc::new(move || {
+            if !recorder.borrow().is_recording() {
+                return;
+            }
+
+            let stop_result = recorder.borrow_mut().stop();
+
+            // Remove tray icon
+            tray_handle.lock().unwrap().take();
+
+            // Reset toolbar immediately
+            stop_btn.set_visible(false);
+            timer_label.set_visible(false);
+            record_btn.set_visible(true);
+            folder_btn.set_visible(true);
+
+            match stop_result {
+                Ok(ref temp_video_path) => {
+                    let file_size = std::fs::metadata(temp_video_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    eprintln!(
+                        "Recording stopped. Temp video: {} ({} bytes)",
+                        temp_video_path.display(),
+                        file_size
+                    );
+
+                    if file_size == 0 {
+                        eprintln!("Warning: temp video is empty");
+                        status_label.set_label("Recording failed (empty file)");
+                        return;
+                    }
+
+                    let _ = recorder
+                        .borrow_mut()
+                        .begin_converting(temp_video_path.clone());
+
+                    status_label.set_label("Converting...");
+
+                    show_converting_then_save(
+                        recorder.clone(),
+                        config.clone(),
+                        status_label.clone(),
+                        temp_video_path.clone(),
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Failed to stop: {e}");
+                    status_label.set_label("Stop failed");
+                }
+            }
+        })
+    };
+
+    // --- Poll for remote stop signals (--stop CLI / tray) ---
+    {
+        let do_stop = do_stop.clone();
+        let stop_rx = stop_rx.clone();
+        glib::timeout_add_local(Duration::from_millis(50), move || {
+            if let Ok(guard) = stop_rx.lock() {
+                if let Some(ref rx) = *guard {
+                    while rx.try_recv().is_ok() {
+                        do_stop();
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     // --- Record button ---
     {
         let recorder = recorder.clone();
@@ -184,6 +307,8 @@ fn build_ui(app: &Application) {
         let timer_label_ref = timer_label.clone();
         let status_label_ref = status_label.clone();
         let folder_btn_ref = folder_btn.clone();
+        let tray_handle = tray_handle.clone();
+        let stop_tx = stop_tx.clone();
 
         record_btn.connect_clicked(move |_| {
             let recorder = recorder.clone();
@@ -192,6 +317,8 @@ fn build_ui(app: &Application) {
             let timer_label = timer_label_ref.clone();
             let status_label = status_label_ref.clone();
             let folder_btn = folder_btn_ref.clone();
+            let tray_handle = tray_handle.clone();
+            let stop_tx = stop_tx.clone();
 
             record_btn.set_visible(false);
             folder_btn.set_visible(false);
@@ -217,6 +344,27 @@ fn build_ui(app: &Application) {
                                 timer_label.set_visible(true);
                                 timer_label.set_label("00:00");
                                 status_label.set_label("Recording");
+
+                                // Spawn tray icon — the thread must stay alive
+                                // so the tokio runtime keeps processing D-Bus calls.
+                                let tray_stop_tx = stop_tx.clone();
+                                let tray_handle_ref = tray_handle.clone();
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        match tray::spawn_tray(tray_stop_tx).await {
+                                            Ok(handle) => {
+                                                *tray_handle_ref.lock().unwrap() = Some(handle);
+                                                // Keep the runtime alive until the connection
+                                                // is dropped (when tray_handle is taken/cleared).
+                                                std::future::pending::<()>().await;
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Tray icon failed: {e}");
+                                            }
+                                        }
+                                    });
+                                });
 
                                 let rec = recorder.clone();
                                 let tl = timer_label.clone();
@@ -265,56 +413,9 @@ fn build_ui(app: &Application) {
 
     // --- Stop button ---
     {
-        let recorder = recorder.clone();
-        let config = config.clone();
-        let window = window.clone();
-        let record_btn_ref = record_btn.clone();
-        let stop_btn_ref = stop_btn.clone();
-        let timer_label_ref = timer_label.clone();
-        let status_label_ref = status_label.clone();
-        let folder_btn_ref = folder_btn.clone();
-
+        let do_stop = do_stop.clone();
         stop_btn.connect_clicked(move |_| {
-            let stop_result = recorder.borrow_mut().stop();
-
-            // Reset toolbar immediately
-            stop_btn_ref.set_visible(false);
-            timer_label_ref.set_visible(false);
-            record_btn_ref.set_visible(true);
-            folder_btn_ref.set_visible(true);
-
-            match stop_result {
-                Ok(ref temp_video_path) => {
-                    let file_size = std::fs::metadata(temp_video_path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    eprintln!("Recording stopped. Temp video: {} ({} bytes)",
-                        temp_video_path.display(), file_size);
-
-                    if file_size == 0 {
-                        eprintln!("Warning: temp video is empty");
-                        status_label_ref.set_label("Recording failed (empty file)");
-                        return;
-                    }
-
-                    let _ = recorder
-                        .borrow_mut()
-                        .begin_converting(temp_video_path.clone());
-
-                    status_label_ref.set_label("Converting...");
-
-                    show_converting_then_save(
-                        recorder.clone(),
-                        config.clone(),
-                        status_label_ref.clone(),
-                        temp_video_path.clone(),
-                    );
-                }
-                Err(e) => {
-                    eprintln!("Failed to stop: {e}");
-                    status_label_ref.set_label("Stop failed");
-                }
-            }
+            do_stop();
         });
     }
 

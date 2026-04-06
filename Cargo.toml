@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 gtk4 = "0.9"
+libadwaita = "0.7"
 ashpd = { version = "0.10", features = ["gtk4"] }
 anyhow = "1"
 tempfile = "3"
@@ -15,6 +16,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "process", "macros", "sy
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 libc = "0.2"
+zbus = { version = "5.14", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 assert_cmd = "2"
