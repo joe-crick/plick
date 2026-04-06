@@ -53,6 +53,13 @@ cargo build --release
 ./target/release/plick
 ```
 
+#### Vendor issues
+If you run into an error that says: `the listed checksum...` you probably need to do this:
+```
+rm -rf vendor/
+cargo vendor
+```
+
 ### Install System-Wide
 
 ```sh
