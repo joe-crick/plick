@@ -453,6 +453,8 @@ fn show_converting_then_save(
     conv_window.present();
 
     let gif_fps = config.borrow().gif_fps;
+    let gif_width = config.borrow().gif_width;
+    let gif_colors = config.borrow().gif_colors;
     let output_dir = config.borrow().output_dir.clone();
     let _ = std::fs::create_dir_all(&output_dir);
     let dest = converter::generate_output_filename(&output_dir);
@@ -464,7 +466,7 @@ fn show_converting_then_save(
     std::thread::spawn(move || {
         eprintln!("Converting {} -> {}", temp_video_path.display(), dest_for_thread.display());
         let result =
-            converter::convert(&temp_video_path, &dest_for_thread, gif_fps, |_| {});
+            converter::convert(&temp_video_path, &dest_for_thread, gif_fps, gif_width, gif_colors, |_| {});
         match &result {
             Ok(r) => eprintln!("Saved: {} ({} bytes)", r.gif_path.display(), r.gif_size_bytes),
             Err(e) => eprintln!("Conversion failed: {e:#}"),

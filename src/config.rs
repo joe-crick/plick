@@ -25,6 +25,22 @@ pub struct Config {
     pub gif_fps: Fps,
     pub max_duration_secs: u64,
     pub countdown_secs: u64,
+    /// Maximum GIF output width in pixels, preserving aspect ratio.
+    /// `None` keeps the original resolution.
+    #[serde(default = "default_gif_width")]
+    pub gif_width: Option<u32>,
+    /// Number of colors in the GIF palette (2–256).
+    /// Lower values compress better; 128 is a good default for UI recordings.
+    #[serde(default = "default_gif_colors")]
+    pub gif_colors: u32,
+}
+
+fn default_gif_width() -> Option<u32> {
+    Some(960)
+}
+
+fn default_gif_colors() -> u32 {
+    128
 }
 
 impl Default for Config {
@@ -42,6 +58,8 @@ impl Default for Config {
             gif_fps: Fps::new(15).unwrap(),
             max_duration_secs: 120,
             countdown_secs: 3,
+            gif_width: default_gif_width(),
+            gif_colors: default_gif_colors(),
         }
     }
 }
@@ -55,6 +73,8 @@ impl Config {
         gif_fps: Fps,
         max_duration_secs: u64,
         countdown_secs: u64,
+        gif_width: Option<u32>,
+        gif_colors: u32,
     ) -> Result<Self> {
         ensure!(
             output_dir.is_absolute(),
@@ -69,6 +89,8 @@ impl Config {
             gif_fps,
             max_duration_secs,
             countdown_secs,
+            gif_width,
+            gif_colors,
         })
     }
 
@@ -119,6 +141,8 @@ mod tests {
         assert_eq!(c.gif_fps.get(), 15);
         assert_eq!(c.max_duration_secs, 120);
         assert_eq!(c.countdown_secs, 3);
+        assert_eq!(c.gif_width, Some(960));
+        assert_eq!(c.gif_colors, 128);
         assert!(c.output_dir.is_absolute());
     }
 
@@ -130,6 +154,8 @@ mod tests {
             Fps::new(15).unwrap(),
             120,
             3,
+            Some(960),
+            128,
         );
         assert!(result.is_err());
     }
@@ -142,6 +168,8 @@ mod tests {
             Fps::new(15).unwrap(),
             0,
             3,
+            Some(960),
+            128,
         );
         assert!(result.is_err());
     }
@@ -154,6 +182,8 @@ mod tests {
             Fps::new(15).unwrap(),
             120,
             3,
+            Some(960),
+            128,
         );
         assert!(result.is_ok());
     }

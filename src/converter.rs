@@ -33,11 +33,15 @@ pub enum ConversionPhase {
 /// 2. Encodes the GIF using that palette.
 /// 3. Cleans up the palette file regardless of success or failure.
 ///
+/// `gif_width` scales the output to the given width (preserving aspect ratio).
+/// `gif_colors` sets the palette size (2–256); lower values compress better.
 /// `on_phase` is called when each phase starts (for UI progress updates).
 pub fn convert<F>(
     input: &Path,
     output: &Path,
     gif_fps: Fps,
+    gif_width: Option<u32>,
+    gif_colors: u32,
     mut on_phase: F,
 ) -> Result<ConversionResult>
 where
@@ -52,7 +56,7 @@ where
 
     // Pass 1: palette generation
     on_phase(ConversionPhase::GeneratingPalette);
-    let palette_result = run_ffmpeg(&build_palette_args(input, &palette_path, gif_fps));
+    let palette_result = run_ffmpeg(&build_palette_args(input, &palette_path, gif_fps, gif_width, gif_colors));
 
     // If palette generation failed, clean up and bail.
     if let Err(e) = palette_result {
@@ -62,7 +66,7 @@ where
 
     // Pass 2: GIF encoding
     on_phase(ConversionPhase::EncodingGif);
-    let gif_result = run_ffmpeg(&build_gif_args(input, &palette_path, output, gif_fps));
+    let gif_result = run_ffmpeg(&build_gif_args(input, &palette_path, output, gif_fps, gif_width));
 
     // Always clean up the palette file.
     let _ = std::fs::remove_file(&palette_path);
@@ -101,19 +105,35 @@ fn run_ffmpeg(args: &[String]) -> Result<()> {
 }
 
 /// Build FFmpeg arguments for pass 1: palette generation.
-pub fn build_palette_args(input: &Path, palette_output: &Path, gif_fps: Fps) -> Vec<String> {
+pub fn build_palette_args(
+    input: &Path,
+    palette_output: &Path,
+    gif_fps: Fps,
+    gif_width: Option<u32>,
+    gif_colors: u32,
+) -> Vec<String> {
+    let scale = scale_filter(gif_width);
     vec![
         "-y".into(),
         "-i".into(),
         input.to_string_lossy().into_owned(),
         "-vf".into(),
-        format!("fps={},palettegen", gif_fps),
+        // stats_mode=diff: build palette from inter-frame differences instead of
+        // full frames — much better for screen recordings where most pixels are static.
+        format!("fps={}{scale},palettegen=max_colors={gif_colors}:stats_mode=diff", gif_fps),
         palette_output.to_string_lossy().into_owned(),
     ]
 }
 
 /// Build FFmpeg arguments for pass 2: GIF encoding with palette.
-pub fn build_gif_args(input: &Path, palette: &Path, output: &Path, gif_fps: Fps) -> Vec<String> {
+pub fn build_gif_args(
+    input: &Path,
+    palette: &Path,
+    output: &Path,
+    gif_fps: Fps,
+    gif_width: Option<u32>,
+) -> Vec<String> {
+    let scale = scale_filter(gif_width);
     vec![
         "-y".into(),
         "-i".into(),
@@ -121,9 +141,28 @@ pub fn build_gif_args(input: &Path, palette: &Path, output: &Path, gif_fps: Fps)
         "-i".into(),
         palette.to_string_lossy().into_owned(),
         "-lavfi".into(),
-        format!("fps={} [x]; [x][1:v] paletteuse", gif_fps),
+        // diff_mode=rectangle: only re-encode the bounding box of changed pixels;
+        // unchanged areas become transparent/empty and compress near-zero with LZW.
+        format!(
+            "fps={}{scale} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+            gif_fps
+        ),
         output.to_string_lossy().into_owned(),
     ]
+}
+
+/// Returns a `,scale=W:-2:flags=lanczos` filter string (leading comma), or empty string.
+///
+/// Used as a suffix after `fps=N` in filtergraph strings:
+/// - with width: `fps=15,scale=960:-2:flags=lanczos`
+/// - without:    `fps=15`
+///
+/// `-2` keeps the height divisible by 2 while preserving the aspect ratio.
+fn scale_filter(gif_width: Option<u32>) -> String {
+    match gif_width {
+        Some(w) => format!(",scale={w}:-2:flags=lanczos"),
+        None => String::new(),
+    }
 }
 
 /// Generate a timestamped output filename under `output_dir`.
@@ -183,6 +222,8 @@ mod tests {
             Path::new("/tmp/recording.webm"),
             Path::new("/tmp/palette.png"),
             fps(15),
+            None,
+            128,
         );
 
         assert_eq!(args.iter().filter(|a| *a == "-i").count(), 1);
@@ -192,18 +233,48 @@ mod tests {
     }
 
     #[test]
+    fn palette_args_includes_scale_filter_when_width_set() {
+        let args = build_palette_args(
+            Path::new("/tmp/recording.webm"),
+            Path::new("/tmp/palette.png"),
+            fps(15),
+            Some(640),
+            128,
+        );
+
+        let vf = args.iter().skip_while(|a| *a != "-vf").nth(1).unwrap();
+        assert!(vf.contains(",scale=640:-2:flags=lanczos,"), "got: {vf}");
+    }
+
+    #[test]
     fn gif_args_has_two_inputs_and_paletteuse() {
         let args = build_gif_args(
             Path::new("/tmp/recording.webm"),
             Path::new("/tmp/palette.png"),
             Path::new("/tmp/output.gif"),
             fps(15),
+            None,
         );
 
         assert_eq!(args.iter().filter(|a| *a == "-i").count(), 2);
         assert!(args.iter().any(|a| a.contains("paletteuse")));
         assert!(args.iter().any(|a| a.contains("fps=15")));
         assert_eq!(args.last().unwrap(), "/tmp/output.gif");
+    }
+
+    #[test]
+    fn gif_args_includes_scale_and_bayer_when_width_set() {
+        let args = build_gif_args(
+            Path::new("/tmp/recording.webm"),
+            Path::new("/tmp/palette.png"),
+            Path::new("/tmp/output.gif"),
+            fps(15),
+            Some(960),
+        );
+
+        let lavfi = args.iter().skip_while(|a| *a != "-lavfi").nth(1).unwrap();
+        assert!(lavfi.contains(",scale=960:-2:flags=lanczos "), "got: {lavfi}");
+        assert!(lavfi.contains("dither=bayer"), "got: {lavfi}");
     }
 
     #[test]
@@ -225,6 +296,8 @@ mod tests {
             Path::new("/tmp/nonexistent_plick_test.webm"),
             Path::new("/tmp/out.gif"),
             fps(15),
+            None,
+            128,
             |_| {},
         );
         assert!(result.is_err());
@@ -240,6 +313,8 @@ mod tests {
             Path::new("/tmp/nonexistent_plick_test.webm"),
             Path::new("/tmp/out.gif"),
             fps(15),
+            None,
+            128,
             |phase| phases.push(phase),
         );
         // Should not have gotten to any phase since input doesn't exist.
@@ -283,7 +358,7 @@ mod tests {
         create_test_video(&video_path).unwrap();
 
         let mut phases = vec![];
-        let result = convert(&video_path, &gif_path, fps(10), |phase| {
+        let result = convert(&video_path, &gif_path, fps(10), None, 128, |phase| {
             phases.push(phase);
         });
 
@@ -313,7 +388,7 @@ mod tests {
         // Write garbage to simulate a corrupt video.
         std::fs::write(&bad_video, b"not a video file").unwrap();
 
-        let result = convert(&bad_video, &gif_path, fps(10), |_| {});
+        let result = convert(&bad_video, &gif_path, fps(10), None, 128, |_| {});
         assert!(result.is_err());
 
         // Palette file should not remain.
