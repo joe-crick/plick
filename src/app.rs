@@ -104,18 +104,23 @@ fn build_ui(
     .collect();
 
     if !missing.is_empty() {
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .build();
         let dialog = gtk4::MessageDialog::builder()
+            .transient_for(&window)
             .message_type(gtk4::MessageType::Error)
             .buttons(gtk4::ButtonsType::Ok)
             .text("Missing dependencies")
             .secondary_text(&format!(
-                "Plick requires: {}\n\nInstall with:\nsudo dnf install ffmpeg gstreamer1-plugins-base gstreamer1-plugins-good",
+                "Plick requires: {}\n\nInstall with:\nsudo apt install ffmpeg gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good",
                 missing.join(", ")
             ))
             .build();
-        dialog.connect_response(|d, _| {
+        let app_ref = app.clone();
+        dialog.connect_response(move |d, _| {
             d.close();
-            std::process::exit(1);
+            app_ref.quit();
         });
         dialog.present();
         return;

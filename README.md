@@ -17,10 +17,30 @@ Plick uses xdg-desktop-portal for screen or window selection, records via GStrea
 
 ## Runtime Dependencies
 
-- **GStreamer 1.x** with `pipewiresrc` and `vp8enc` plugins
+- **GStreamer 1.x** with `pipewiresrc` and `vp8enc` plugins, plus the `gst-launch-1.0` command-line tool
 - **FFmpeg** (for GIF conversion)
 - **PipeWire** (session daemon)
 - **xdg-desktop-portal** with a working screencast backend
+
+If Plick shows a "Missing dependencies" dialog at startup, install the missing runtime packages for your distro:
+
+**Fedora:**
+
+```sh
+sudo dnf install ffmpeg gstreamer1-tools gstreamer1-plugins-base gstreamer1-plugins-good
+```
+
+**Debian/Ubuntu:**
+
+```sh
+sudo apt install ffmpeg gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pipewire
+```
+
+**Arch:**
+
+```sh
+sudo pacman -S ffmpeg gstreamer gst-plugins-base gst-plugins-good gst-plugin-pipewire
+```
 
 ## Building from Source
 
@@ -29,21 +49,23 @@ Plick uses xdg-desktop-portal for screen or window selection, records via GStrea
 **Fedora:**
 
 ```sh
-sudo dnf install gcc cargo gtk4-devel gstreamer1-devel gstreamer1-plugins-base \
-  gstreamer1-plugins-good ffmpeg pipewire-devel
+sudo dnf install gcc cargo gtk4-devel gstreamer1-devel gstreamer1-tools \
+  gstreamer1-plugins-base gstreamer1-plugins-good ffmpeg pipewire-devel
 ```
 
 **Ubuntu/Debian:**
 
 ```sh
 sudo apt install build-essential cargo libgtk-4-dev libgstreamer1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good ffmpeg libpipewire-0.3-dev
+  gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-pipewire ffmpeg libpipewire-0.3-dev
 ```
 
 **Arch:**
 
 ```sh
-sudo pacman -S gcc cargo gtk4 gstreamer gst-plugins-base gst-plugins-good ffmpeg pipewire
+sudo pacman -S gcc cargo gtk4 gstreamer gst-plugins-base gst-plugins-good \
+  gst-plugin-pipewire ffmpeg pipewire
 ```
 
 ### Build and Run
@@ -138,7 +160,7 @@ flatpak install plick.flatpak
 There are three ways to stop a recording:
 
 1. **Stop button** — click "Stop" in the Plick toolbar
-2. **Tray icon** — click the recording indicator in the system tray (requires the [AppIndicator](https://extensions.gnome.org/extension/615/appindicator-support/) GNOME Shell extension on GNOME desktops)
+2. **Tray icon** — click the recording indicator in the system tray (see [Tray Icon Setup](#tray-icon-setup) below)
 3. **CLI** — run `plick --stop` from any terminal to stop the running recording
 
 ### Global Keyboard Shortcut
@@ -151,6 +173,38 @@ You can bind `plick --stop` to a global keyboard shortcut so you can stop record
 - Shortcut: your preferred key combination (e.g. `Ctrl+Shift+R`)
 
 **KDE:** System Settings > Shortcuts > Custom Shortcuts > Add a new shortcut with `plick --stop` as the command.
+
+## Tray Icon Setup
+
+The tray icon uses the `StatusNotifierItem` D-Bus protocol. KDE Plasma supports this natively. GNOME requires an extension.
+
+**Fedora:** The AppIndicator extension is typically pre-installed. If the tray icon is missing, enable it:
+
+```sh
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+```
+
+**Debian/Ubuntu:** The extension is not installed by default:
+
+```sh
+sudo apt install gnome-shell-extension-appindicator
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+```
+
+A log-out/log-in is required if GNOME Shell doesn't pick it up immediately.
+
+**Arch:**
+
+```sh
+sudo pacman -S gnome-shell-extension-appindicator
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+```
+
+If the tray icon still doesn't appear, check that a `StatusNotifierWatcher` is running:
+
+```sh
+busctl --user list | grep StatusNotifier
+```
 
 ## Configuration
 
